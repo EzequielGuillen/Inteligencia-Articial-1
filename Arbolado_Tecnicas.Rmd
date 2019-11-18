@@ -1,0 +1,138 @@
+
+---
+title: "Arbolado Mendoza"
+output: html_document
+---
+Librerias
+```{r}
+suppressMessages(library(rpart))
+suppressMessages(library(caret))
+suppressMessages(library(readr))
+suppressMessages(library(dplyr))
+```
+Leer Entrenamiento y testeo
+```{r}
+data_train <- readr::read_csv("./lab6/data/arbolado-publico-mendoza/arbolado-mza-dataset.csv",
+                              col_types = cols(
+  id = col_integer(),
+  especie = col_character(),
+  ultima_modificacion = col_character(),
+  altura = col_character(),
+  circ_tronco_cm = col_double(),
+  diametro_tronco = col_character(),
+  long = col_double(),
+  lat = col_double(),
+  seccion = col_integer(),
+  nombre_seccion = col_character(),
+  area_seccion = col_double(),
+  inclinacion_peligrosa = col_integer()
+))
+data_test <-  readr::read_csv("./lab6/data/arbolado-publico-mendoza/arbolado-mza-dataset-test.csv",col_types = cols(
+  id = col_integer(),
+  especie = col_character(),
+  ultima_modificacion = col_character(),
+  altura = col_character(),
+  circ_tronco_cm = col_double(),
+  diametro_tronco = col_character(),
+  long = col_double(),
+  lat = col_double(),
+  seccion = col_integer(),
+  nombre_seccion = col_character(),
+  area_seccion = col_double()
+))
+```
+Transformaciones
+Hace que la inclinacion peligrosa sea si o no, no 1 o 0
+```{r} 
+data_train<-data_train %>% mutate(inclinacion_peligrosa=ifelse(inclinacion_peligrosa=='1','si','no'))
+data_train$inclinacion_peligrosa <-as.factor(data_train$inclinacion_peligrosa)
+```
+Entrenamiento
+Reduzco la cantidad de inclinacion peligrosa de respuesta no que hay
+```{r}
+data_train_reduced <- rbind(
+  data_train %>% filter(inclinacion_peligrosa == "no") %>% sample_n(3500),
+  data_train %>% filter(inclinacion_peligrosa == "si") 
+)
+```
+Tomo una parte de la cantidad total para poder testear localmente sin tener que subir el archivo y tomo como variables para determinar si un arbol tiene inclinacion peligrosa son la altura, la circuferencia de
+```{r}
+trainset <- data_train_reduced
+trainIndex <- createDataPartition(as.factor(trainset$inclinacion_peligrosa), p=0.80, list=FALSE)
+data_train <- trainset[ trainIndex,]
+data_test_1 <-  trainset[-trainIndex,]
+colnames(data_train) <- make.names(colnames(data_train))
+colnames(data_test_1) <- make.names(colnames(data_test_1))
+data_train$inclinacion_peligrosa <- as.factor(data_train$inclinacion_peligrosa)
+data_test_1$inclinacion_peligrosa <- as.factor(data_test_1$inclinacion_peligrosa)
+train_formula<-formula(inclinacion_peligrosa~altura+circ_tronco_cm  + long + lat)
+ctrl_fast <- trainControl(method="cv", 
+                       number=9, 
+                       verboseIter=T,
+                     classProbs=F,
+                     allowParallel = TRUE
+                  
+                     )  
+tree_model_3<- train(train_formula,
+               data = data_train,
+               tuneLength=5,
+               #method="rpart",
+               method = "rf",
+               #method = "knn",
+               #preProcess=c("scale","center"),
+               trControl = ctrl_fast) 
+tree_model_3
+```
+ Generacion del archivo de ENVIO
+ 
+ 
+ 
+```{r}
+preds_tree_probs=predict(tree_model_3,data_test,type='prob')
+head(preds_tree_probs)
+```
+```{r}
+preds_tree=ifelse(preds_tree_probs[,2] >=0.5,1,0)
+head(preds_tree)
+```
+ 
+```{r}
+submission<-data.frame(id=data_test$id,inclinacion_peligrosa=preds_tree)
+readr::write_csv(submission,"./Ejemplo7.csv")
+head(submission)
+```
+```{r}
+data_validation_index<-sample(nrow(data_train),nrow(data_train)*0.1)
+data_validation<-data_train[data_validation_index,]
+data_train<-data_train[-data_validation_index,]
+```
+```{r}
+train_formula<-formula(inclinacion_peligrosa~altura+circ_tronco_cm+lat+long+seccion+especie)
+ctrl_fast <- trainControl(method="cv", 
+                       number=5, 
+                       verboseIter=T,
+                     classProbs=F,
+                     allowParallel = TRUE
+                  
+                     )  
+tree_model_4<- train(train_formula,
+               data = data_train,
+               tuneLength=9,
+               #method="rpart",
+               #method = "rf",
+               method = "knn",
+               #preProcess=c("scale","center"),
+               trControl = ctrl_fast)
+tree_model_4
+```
+```{r}
+preds_tree_probs=predict(tree_model_4,data_validation,type='prob')
+preds_tree=ifelse(preds_tree_probs[,2] >=0.5,'si','no')
+resultados_validation<-data.frame(inclinacion_peligrosa=preds_tree)
+```
+Calculo de la matriz de confusion
+```{r}
+confusionMatrix(resultados_validation$inclinacion_peligrosa,data_validation$inclinacion_peligrosa)
+```
+```{r}
+```
